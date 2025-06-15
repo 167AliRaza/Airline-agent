@@ -227,3 +227,6 @@ async def agent_endpoint(message: Message):
 
     except Exception as e:
         return {"error": str(e)}
+@app.get("/")
+async def root():
+    return {"message": "Welcome to the Airline Agent API.."}
