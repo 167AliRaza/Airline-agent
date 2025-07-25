@@ -224,15 +224,13 @@ async def agent_endpoint(message: Message):
     current_agent = triage_agent
 
     try:
-        result = Runner.run_sync(
-         agent,
-         query)
+        result = await Runner.run(current_agent, history)
         history.append({"role": "assistant", "content": result.final_output})
-    
-    except Exception as e:
-        yield f"[ERROR]: {str(e)}"
+        current_agent = result.last_agent 
+        return {"response": result.final_output}
 
-    return result.final_output
+    except Exception as e:
+        return {"error": str(e)}
     
 
 
