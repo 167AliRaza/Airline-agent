@@ -223,18 +223,16 @@ async def agent_endpoint(message: Message):
     history.append({"role": "user", "content": query})
     current_agent = triage_agent
 
-    async def event_stream() -> AsyncGenerator[str, None]:
-        try:
-            result = Runner.run_streamed(current_agent, history)
-            async for event in result.stream_events():
-                if event.type == "raw_response_event" and isinstance(event.data, ResponseTextDeltaEvent):
-                    yield event.data.delta
-            # Add final output to history if needed
-            history.append({"role": "assistant", "content": result.final_output})
-        except Exception as e:
-            yield f"[ERROR]: {str(e)}"
+    try:
+        result = Runner.run_sync(
+         agent,
+         query)
+        history.append({"role": "assistant", "content": result.final_output})
+    
+    except Exception as e:
+        yield f"[ERROR]: {str(e)}"
 
-    return StreamingResponse(event_stream(), media_type="text/plain")
+    return result.final_output
     
 
 
