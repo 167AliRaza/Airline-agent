@@ -1,7 +1,10 @@
 from fastapi import FastAPI
 from openai import AsyncOpenAI #type: ignore
 from openai import OpenAIError #type: ignore
-from agents import Agent, OpenAIChatCompletionsModel, Runner ,function_tool ,TResponseInputItem #type: ignore
+from openai.types.responses import ResponseTextDeltaEvent #type: ignore
+from fastapi.responses import StreamingResponse
+from typing import AsyncGenerator
+from agents import Agent, OpenAIChatCompletionsModel, Runner ,function_tool ,TResponseInputItem , set_tracing_disabled#type: ignore
 from dotenv import load_dotenv #type: ignore
 from pydantic import BaseModel #type: ignore
 from typing import Optional
@@ -10,6 +13,7 @@ import uuid
 
 import os
 from db_connection import get_db_client
+set_tracing_disabled(disabled=True) # Disable tracing for the agent
 load_dotenv()   
 app=FastAPI()
 class Message(BaseModel):
@@ -195,7 +199,7 @@ triage_agent = Agent(
     handoff_description="A triage agent that can delegate a customer's request to the appropriate agent.",
     instructions=(
         f"{RECOMMENDED_PROMPT_PREFIX} "
-        "You are a helpful triaging agent. You task is to delegate questions to other appropriate agents."
+        "You are a helpful triaging agent. You task is to delegate questions to other appropriate agents with the user query without responding to user."
     ),
     model=OpenAIChatCompletionsModel(model="gemini-2.0-flash", openai_client=client),
     handoffs=[
@@ -218,15 +222,20 @@ async def agent_endpoint(message: Message):
     
     history.append({"role": "user", "content": query})
     current_agent = triage_agent
-    
-    try:
-        result = await Runner.run(current_agent, history)
-        history.append({"role": "assistant", "content": result.final_output})
-        current_agent = result.last_agent 
-        return {"response": result.final_output}
 
-    except Exception as e:
-        return {"error": str(e)}
-@app.get("/")
-async def root():
-    return {"message": "Welcome to the Airline Agent API.."}
+    async def event_stream() -> AsyncGenerator[str, None]:
+        try:
+            result = Runner.run_streamed(current_agent, history)
+            async for event in result.stream_events():
+                if event.type == "raw_response_event" and isinstance(event.data, ResponseTextDeltaEvent):
+                    yield event.data.delta
+            # Add final output to history if needed
+            history.append({"role": "assistant", "content": result.final_output})
+        except Exception as e:
+            yield f"[ERROR]: {str(e)}"
+
+    return StreamingResponse(event_stream(), media_type="text/plain")
+    
+
+
+
